@@ -27,7 +27,7 @@ import sys
 import time
 from typing import Any
 
-from command_parser import PROTOCOL_COMMANDS, parse_command
+from voice_command_parser import PROTOCOL_COMMANDS, parse_command
 
 BAUD_DEFAULT = 9600
 READY_TIMEOUT_S = 4.0

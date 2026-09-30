@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Project artifacts
+data/samples/
+recognition/model/*.pkl
+
+# MediaPipe model weights (~8 MB) fetched by scripts/fetch_hand_landmarker.py
+models/*.task

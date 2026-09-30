@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import unittest
 
-from command_parser import COMMANDS, parse_command
+from voice_command_parser import COMMANDS, parse_command
 
 
 class ParserTests(unittest.TestCase):

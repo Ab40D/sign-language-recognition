@@ -1,821 +1,373 @@
-# 🎤 Voice-Controlled Arduino LED
+# ✋ ASL-Based Hand-Sign Recognition Prototype for Device Control
 
-### Version 1 — Voice → Serial → Arduino → LED
+**ASL ON/OFF sign → Computer Vision → Command → USB Serial → Arduino → LED**
 
-A beginner-friendly project that connects **voice recognition to real hardware** using Python, USB serial communication, and an Arduino Uno.
+> [!IMPORTANT]
+> **This project recognizes two predefined ASL signs and maps them to device
+> commands. It does not understand ASL grammar, sentences, facial
+> expressions, or general sign language.** It is a small accessibility /
+> human-computer-interaction prototype, not an ASL translator.
 
-The idea is simple:
-
-```text
-🎤 Human Voice
-      ↓
-💻 Python
-      ↓
-🧠 Speech Recognition
-      ↓
-🔎 Command Parser
-      ↓
-🔌 USB Serial
-      ↓
-🤖 Arduino Uno
-      ↓
-📍 Digital Pin 8
-      ↓
-💡 LED
-```
-
-The PC handles the voice.
-
-The Arduino handles the hardware.
-
-The communication between them uses a simple and explicit serial protocol.
-
----
-
-## ✨ What This Project Does
-
-You say:
-
-> "Turn the light on"
-
-The PC converts the sentence into:
+This repository is the evolution of a voice-controlled Arduino LED project
+(Version 1, preserved in [`legacy_voice/`](legacy_voice/README.md)). The
+microphone is gone; the input is now a **webcam watching your hand**. The
+serial protocol, the Arduino communication code, and the Arduino-side
+command handling were reused and extended — only the human input changed.
 
 ```text
-LIGHT_ON
-```
-
-Then sends it to the Arduino through USB serial.
-
-The Arduino turns on the external LED connected to **digital pin 8** and sends a status response back:
-
-```text
-LIGHT_STATE:ON
-```
-
-The complete flow is:
-
-```text
-🎤 Voice
-   ↓
-🧠 Speech-to-Text
-   ↓
-🔎 Command Parser
-   ↓
-"LIGHT_ON"
-   ↓
-🔌 USB Serial
-   ↓
-🤖 Arduino Uno
-   ↓
-💡 External LED
-   ↓
-↩️ Status Response
-   ↓
-💻 Python
+ASL HAND SIGN (ON / OFF)
+        ↓
+     WEBCAM
+        ↓
+     OPENCV (frame capture)
+        ↓
+     MEDIAPIPE (21 hand landmarks)
+        ↓
+     ML CLASSIFIER (Random Forest on normalized landmarks)
+        ↓
+     ON / OFF  (+ confidence)
+        ↓
+     COMMAND MAPPER
+        ↓
+     LIGHT_ON / LIGHT_OFF
+        ↓
+     USB SERIAL (9600 baud)
+        ↓
+     ARDUINO
+        ↓
+     GREEN LED (on) / RED LED (off)
 ```
 
 ---
 
-## 🧠 Project Concept
+## ✨ Project Overview
 
-This project is **Version 1** of a larger progression from basic Arduino programming to IoT and Building Automation.
+Hold the ASL sign for **ON** in front of your webcam → the green LED turns
+on. Hold the sign for **OFF** → the red LED turns on. That is the whole
+product.
 
-The objective is to understand the fundamentals first:
+The pipeline is deliberately split into small, replaceable layers:
 
-```text
-Human
-  ↓
-Voice
-  ↓
-Software
-  ↓
-Command
-  ↓
-Communication
-  ↓
-Microcontroller
-  ↓
-Physical Output
-```
-
-The Arduino does **not** understand natural language.
-
-It only receives predefined commands such as:
-
-```text
-LIGHT_ON
-LIGHT_OFF
-STATUS
-```
-
-This separation keeps the hardware simple and makes the system easier to extend later.
+| Layer | Module | Responsibility |
+| ----- | ------ | -------------- |
+| Hand detection | `vision/hand_detector.py` | Run MediaPipe, return 21 landmarks per hand |
+| Normalization | `vision/preprocessing.py` | Make landmarks position/scale/rotation/hand independent |
+| Feature extraction | `vision/feature_extractor.py` | One hand detection → one 63-number vector |
+| Data collection | `recognition/collect_data.py` | Save labeled landmark samples from your webcam |
+| Training | `recognition/train_classifier.py` | Train + evaluate + save the Random Forest |
+| Classifier | `recognition/classifier.py` | Load the model, predict ON/OFF + confidence |
+| Command mapping | `control/command_parser.py` | `ON → LIGHT_ON`, `OFF → LIGHT_OFF` (nothing else) |
+| Stability | `control/debounce.py` | Send each command **once** per stable sign |
+| Serial link | `control/serial_controller.py` | Connect, send, receive, reconnect (or simulate) |
+| Firmware | `arduino/sign_controller/sign_controller.ino` | Parse one line, drive two LEDs, answer one line |
+| Application | `main.py` | Wire everything together + on-screen UI |
 
 ---
 
-## 🏗️ System Architecture
+## ♿ Accessibility
 
-![System Architecture](architecture.png)
+This prototype explores **one more way** to control a device without voice,
+touch, or a keyboard. Voice assistants are not usable or comfortable for
+everyone — for example people who cannot speak, people in quiet or noisy
+environments, or people who simply prefer a visual-gestural interface.
 
-The project is divided into two main sides.
+Two honest notes:
 
-### 💻 PC Side
-
-The PC is responsible for:
-
-* 🎤 Capturing voice from the microphone
-* 🧠 Converting speech into text
-* 🔎 Parsing the recognized sentence
-* 🔌 Sending commands through USB serial
-* ↩️ Reading the Arduino response
-
-### 🤖 Arduino Side
-
-The Arduino is responsible for:
-
-* 📥 Receiving commands
-* 🔎 Validating commands
-* 💡 Controlling the LED
-* 📤 Sending the current state back to the PC
-
-The two sides communicate using a small serial protocol instead of sending natural-language sentences directly to the Arduino.
+* **Not all Deaf people use ASL** (or any sign language), and not everyone
+  who signs can perform every handshape. A two-sign prototype helps nobody
+  by pretending otherwise.
+* Sign languages are **real, complete languages** and are **not universal**:
+  ASL (used here) differs from LSF, BSL, and every other sign language.
 
 ---
 
-## 🔄 Project Flow
+## 🤟 ASL Reference (which signs and why)
 
-![Project Flowchart](flowchart.png)
+Primary reference: **HandSpeak** — <https://www.handspeak.com/>
 
-The main sequence is:
+* ON: <https://www.handspeak.com/word/1553/>
+* OFF: <https://www.handspeak.com/word/1536/>
+* LIGHT (context, e.g. `LIGHT #ON` / `LIGHT #OFF`): <https://www.handspeak.com/word/1272/>
 
-```text
-🎤 Speak
-  ↓
-🧠 Speech Recognition
-  ↓
-🔎 Command Parsing
-  ↓
-📨 Generate Command
-  ↓
-🔌 Send through USB
-  ↓
-🤖 Arduino receives command
-  ↓
-💡 Control LED
-  ↓
-📤 Send status
-  ↓
-💻 Display result
-```
+HandSpeak documents **two variants** for each word:
 
----
+1. **The two-flat-hands variant.**
+   *ON*: dominant palm-down flat hand rests on top of the non-dominant
+   palm-down flat hand. *OFF*: the dominant hand then moves outward and
+   downward off the non-dominant hand. HandSpeak itself notes the isolated
+   word form is rarely used in real ASL, and — critically for this project —
+   ON and OFF share the same static pose and differ **only in movement
+   direction**. A single-frame landmark classifier cannot see movement.
+2. **The lexicalized fingerspelled loans `#ON` and `#OFF`.**
+   HandSpeak states that `#ON` is *"commonly used by Deaf native-signers
+   more than the other sign"*, and that `#OFF` is commonly used in
+   constructions like `TURN+#OFF` and `LIGHT+#OFF` — exactly the
+   "turn the light on/off" context this prototype targets.
 
-## 🔌 Hardware
+**Selected signs (this prototype):**
 
-### Required Components
+| Command | Sign | What you hold for the camera |
+| ------- | ---- | ---------------------------- |
+| ON | `#ON` | Fingerspell O→N quickly and **hold the final N handshape**: index + middle fingers extended, resting over the tucked thumb; ring + pinky curled into the palm. |
+| OFF | `#OFF` | Fingerspell O→F→F quickly and **hold the final F handshape**: thumb tip touching index tip forming a circle; middle, ring and pinky fingers extended and spread. |
 
-| Component         | Purpose                      |
-| ----------------- | ---------------------------- |
-| 🤖 Arduino Uno R3 | Microcontroller              |
-| 💡 LED            | Physical output              |
-| 🧱 220 Ω resistor | Current limiting             |
-| 🔗 Jumper wires   | Connections                  |
-| 🟫 Breadboard     | Optional                     |
-| 🔌 USB cable      | Power + serial communication |
-| 🎤 Microphone     | Voice input                  |
-
-No relay or mains voltage is used in this project.
-
-The output is a low-voltage LED.
+Why these two: they are the documented, native-preferred forms for the
+light-switch context, they are **one-handed**, and their held positions are
+**statically distinct** (an N-like hold vs. an F hold), which is what a
+per-frame landmark classifier can actually separate. The movement-based
+flat-hand variants are documented above for completeness.
 
 ---
 
-## 🔧 Wiring
-
-The current implementation uses an **external LED connected to digital pin 8**.
-
-![LED Wiring](wiring.png)
-
-The basic connection is:
+## 🏗️ Architecture
 
 ```text
-Arduino D8
-    │
-    ↓
-  220 Ω
-    │
-    ↓
-LED Anode (+)
-LED Cathode (-)
-    │
-    ↓
-   GND
+┌────────────┐   RGB frame   ┌──────────────┐  21×(x,y,z)  ┌───────────────┐
+│   WEBCAM   │ ────────────► │   MediaPipe  │ ───────────► │ preprocessing │
+└────────────┘               │ HandLandmarker│              │ (normalize)   │
+                             └──────────────┘              └──────┬────────┘
+                                                                  │ 63 floats
+                ┌───────────────────────────────────────────────┘
+                ▼
+     ┌────────────────────┐   ON/OFF + confidence   ┌─────────────────┐
+     │  Random Forest     │ ───────────────────────►│ SignStabilizer  │
+     │  (scikit-learn)    │                         │ (debounce)      │
+     └────────────────────┘                         └───────┬─────────┘
+                                                            │ stable sign
+                ┌───────────────────────────────────────────┘
+                ▼
+     ┌────────────────────┐  LIGHT_ON / LIGHT_OFF   ┌─────────────────┐
+     │  command_parser    │ ───────────────────────►│ SerialController│
+     │  (sign → command)  │                         │ (pyserial 9600) │
+     └────────────────────┘                         └───────┬─────────┘
+                                                            │ USB
+                             ┌──────────────────────────────┘
+                             ▼
+                  ┌─────────────────────┐      ┌───────────────────┐
+                  │  Arduino sketch     │ ───► │ D8 GREEN / D9 RED │
+                  │  sign_controller    │ ◄─── │      LEDs         │
+                  └─────────────────────┘      └───────────────────┘
+                     replies: READY, LIGHT_STATE:ON/OFF,
+                              ERROR:UNKNOWN_COMMAND
 ```
 
-### Connections
+### How each stage works (the short course)
 
-```text
-D8 ─── 220 Ω resistor ─── LED long leg (+)
-
-LED short leg (-) ─────── GND
-```
-
-The resistor must be connected in series with the LED.
-
-The Arduino sketch uses:
-
-```cpp
-const int LED_PIN = 8;
-```
-
----
-
-## 💻 Software
-
-### Requirements
-
-* 🐧 Linux
-* 🐍 Python 3.10+
-* 🤖 Arduino Uno R3
-* 🎤 Microphone
-* 🔌 USB connection
-* 🌐 Internet connection for Google Web Speech
-
-Python libraries used by the project:
-
-```text
-pyserial
-SpeechRecognition
-```
-
-PyAudio is optional.
-
-When PyAudio is unavailable, the voice controller can use `arecord` as a microphone fallback.
+1. **MediaPipe hand detection** — a two-stage model: a light palm detector
+   finds the hand region, then a regression network outputs 21 3D landmark
+   points plus handedness. We never feed pixels to our own classifier.
+2. **Landmarks → features** (`vision/preprocessing.py`) — raw landmarks
+   depend on hand position, distance and tilt. Normalization removes that:
+   mirror left hands to a canonical side → move wrist to origin → divide by
+   hand size → rotate so the middle finger points "up" → flatten to 63
+   numbers. **The exact same function runs at collection, training and
+   inference** — there is only one copy of it.
+3. **Classifier** — a Random Forest over those 63 numbers. Chosen because it
+   is strong on small tabular datasets, needs no feature scaling, returns
+   class probabilities (our confidence score), and predicts in microseconds.
+4. **Stability** (`control/debounce.py`) — a command fires only when the
+   same sign was predicted in `stable_frames` consecutive frames **and**
+   held for `min_hold_seconds`, **and** differs from the last sign sent,
+   **and** the `cooldown_seconds` window has passed. Holding ON for five
+   seconds sends `LIGHT_ON` exactly once.
+5. **Serial protocol** — one ASCII line per message, 9600 8N1, identical to
+   the voice version: `LIGHT_ON`, `LIGHT_OFF`, `STATUS` in; `READY`,
+   `LIGHT_STATE:ON`, `LIGHT_STATE:OFF`, `ERROR:UNKNOWN_COMMAND` out.
+6. **Arduino** — the sketch never trusts a bad line: unknown input changes
+   nothing and returns `ERROR:UNKNOWN_COMMAND`.
 
 ---
 
 ## 📦 Installation
 
-### Arch Linux
-
-Install the required system packages:
+Requirements: **Python 3.10+**, an Arduino Uno (or clone), a webcam.
 
 ```bash
-sudo pacman -S python python-pip alsa-utils
-```
+git clone https://github.com/Ab40D/voice-controlled-arduino.git
+cd voice-controlled-arduino
 
-Create a virtual environment:
-
-```bash
 python3 -m venv .venv
-source .venv/bin/activate
-```
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 
-Install the Python dependencies:
-
-```bash
 python -m pip install --upgrade pip
-python -m pip install pyserial SpeechRecognition
+python -m pip install -r requirements.txt
+
+# MediaPipe model weights (~8 MB, one time):
+python scripts/fetch_hand_landmarker.py
 ```
 
-### Debian / Ubuntu
+`requirements.txt`: `opencv-python`, `mediapipe`, `numpy`, `scikit-learn`,
+`joblib`, `pyserial` — nothing else.
 
-Install the required packages:
+> Note: current mediapipe (≥ 0.10.35 / 1.x) uses the **Tasks API** used
+> here; the old `mp.solutions` API was removed upstream.
+
+Upload the firmware with the Arduino IDE:
+open `arduino/sign_controller/sign_controller.ino` and upload it to the board.
+
+---
+
+## 📚 Dataset
+
+There is **no bundled image dataset**, and that is deliberate:
+
+* No suitably-licensed public dataset provides exactly these two held
+  signs (`#ON`, `#OFF`) as isolated poses.
+* Landmark-based training needs only ~60 samples per class, and samples of
+  **your** hand, camera and lighting are worth more than any scraped set.
+* Random Google Images would be an unverified training source — rejected by
+  design.
+
+All training data is collected by you, in about one minute (next section).
+References (HandSpeak pages above) are used only to learn/verify the signs.
+
+## 🎥 Data Collection
+
+Learn the two holds (see ASL Reference), then from the repository root:
 
 ```bash
-sudo apt update
-sudo apt install -y python3 python3-pip python3-venv alsa-utils
+python recognition/collect_data.py --label ON      # ~60 samples, 30 seconds
+python recognition/collect_data.py --label OFF
 ```
 
-Create the virtual environment:
+A window opens with a 3-second countdown, then captures ~10 samples/second
+while showing your landmarks. Keep **exactly one hand** visible; vary
+position and distance a little between captures. Press `Q` to abort.
+Sessions are stored as `data/samples/<LABEL>/session_<timestamp>.npz`
+(normalized 63-dim landmark vectors + labels). Repeat any time to add more.
+
+## 🧠 Training
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python recognition/train_classifier.py
 ```
 
-Install the Python dependencies:
+Loads every session of both labels, fails clearly if data is missing or too
+small (< 10 per class), does a stratified 80/20 split, trains a 200-tree
+Random Forest, prints accuracy / per-class precision-recall / confusion
+matrix, and saves `recognition/model/sign_classifier.pkl`.
+
+## ▶️ Running
 
 ```bash
-python -m pip install --upgrade pip
-python -m pip install pyserial SpeechRecognition
+python main.py                     # auto-detects the Arduino port
+python main.py --port /dev/ttyACM0   # Linux explicit port
+python main.py --port COM3           # Windows explicit port
+python main.py --simulate          # no Arduino needed (simulated replies)
+python main.py --list-ports        # see available serial ports
+python main.py --send LIGHT_ON     # one-shot serial test (no model needed)
+```
+
+Useful flags: `--camera N`, `--confidence 0.7`, `--stable-frames 6`,
+`--cooldown 1.0`.
+
+Keyboard (development only): `O` inject ON · `F` inject OFF · `C` clear
+state · `Q` quit.
+
+The window shows the webcam image with landmarks and a status panel:
+detected sign, confidence, last command, Arduino status
+(`CONNECTED` / `SIMULATION` / `DISCONNECTED`) and the last Arduino response.
+
+---
+
+## 🔌 Arduino Wiring
+
+**Safety: this project only switches low-voltage LEDs with current-limiting
+resistors. Never connect Arduino GPIO to mains voltage.**
+
+```text
+D8  ──── 220 Ω ────► GREEN LED anode (long leg)     cathode ──── GND
+D9  ──── 220 Ω ────► RED   LED anode (long leg)     cathode ──── GND
+```
+
+| State | Green (D8) | Red (D9) |
+| ----- | ---------- | -------- |
+| `LIGHT_ON`  | ON  | OFF |
+| `LIGHT_OFF` | OFF | ON  |
+
+---
+
+## 🧪 Tests
+
+Headless unit + integration tests (no webcam/Arduino needed; a synthetic
+landmark generator exercises the full train→predict→stabilize→serial chain):
+
+```bash
+python -m unittest discover -s tests
 ```
 
 ---
 
-## 🤖 Arduino Setup
+## 🛠️ Troubleshooting
 
-Open:
-
-```text
-voice_light_controller.ino
-```
-
-Upload the sketch to the Arduino Uno using the Arduino IDE.
-
-The current LED configuration is:
-
-```cpp
-const int LED_PIN = 8;
-```
-
-After startup, the Arduino sends:
-
-```text
-READY
-```
-
-This tells the PC that the Arduino is ready to receive commands.
+| Problem | Fix |
+| ------- | --- |
+| `MediaPipe model file not found` | Run `python scripts/fetch_hand_landmarker.py` |
+| `Webcam unavailable` | Plug in the camera, close other apps using it, try `--camera 1` |
+| `No Arduino serial port found` | Plug in the board, use a **data** USB cable, run `--list-ports`, or pass `--port` |
+| `Permission denied` on Linux | `sudo usermod -aG dialout $USER`, then log out/in (or `sudo chmod a+rw /dev/ttyACM0` for now) |
+| Port busy | Close the Arduino IDE Serial Monitor (`fuser -v /dev/ttyACM0`) |
+| No `READY` line | Correct sketch uploaded? Baud is 9600. Cable data-capable? |
+| Sign never triggers | Better lighting, one hand only, hold the pose steady ~1 s; lower `--confidence` only if you understand the trade-off |
+| Wrong sign recognized | Collect more samples of both signs (varied positions) and retrain |
+| Commands repeat | Should not happen — check you didn't set `--stable-frames 1 --cooldown 0` |
 
 ---
 
-## 🧪 Test the Arduino
-
-Before testing voice recognition, test the Arduino and LED independently.
-
-Open the Arduino Serial Monitor.
-
-Use:
-
-```text
-Baud Rate: 9600
-Line Ending: Newline
-```
-
-Send:
-
-```text
-LIGHT_ON
-```
-
-Expected response:
-
-```text
-LIGHT_STATE:ON
-```
-
-The external LED connected to D8 should turn on.
-
-Then send:
-
-```text
-LIGHT_OFF
-```
-
-Expected response:
-
-```text
-LIGHT_STATE:OFF
-```
-
-The LED should turn off.
-
-You can also send:
-
-```text
-STATUS
-```
-
-to check the current LED state.
-
----
-
-## 🐍 Test with Python
-
-After uploading the Arduino sketch, close the Arduino Serial Monitor.
-
-Activate the virtual environment:
-
-```bash
-source .venv/bin/activate
-```
-
-Test the ON command:
-
-```bash
-python3 voice_controller.py --send LIGHT_ON
-```
-
-Expected output:
-
-```text
-Port: /dev/ttyUSB0
-Baud: 9600
-Waiting for Arduino READY...
-Arduino: READY
-Arduino: LIGHT_STATE:ON
-```
-
-Test the OFF command:
-
-```bash
-python3 voice_controller.py --send LIGHT_OFF
-```
-
-The LED should turn off.
-
-This confirms the complete communication path:
-
-```text
-🐍 Python
-   ↓
-🔌 USB Serial
-   ↓
-🤖 Arduino
-   ↓
-💡 LED
-```
-
-without involving speech recognition.
-
----
-
-## 🎤 Voice Control
-
-Start the voice controller:
-
-```bash
-python3 voice_controller.py
-```
-
-When the program displays:
-
-```text
-Listening...
-```
-
-say:
-
-```text
-Turn the light on
-```
-
-The system should produce something similar to:
-
-```text
-You said: turn the light on
-Command: LIGHT_ON
-Sending to Arduino...
-Arduino: LIGHT_STATE:ON
-```
-
-The LED should turn on.
-
-For example:
-
-```text
-Turn the light off
-```
-
-becomes:
-
-```text
-LIGHT_OFF
-```
-
-and the Arduino turns the LED off.
-
----
-
-## 🔎 Command Parser
-
-The command parser converts natural-language input into predefined hardware commands.
-
-Example:
-
-```text
-"turn the light on"
-          ↓
-      LIGHT_ON
-```
-
-Another example:
-
-```text
-"turn the light off"
-          ↓
-      LIGHT_OFF
-```
-
-Unknown or unrelated sentences should not be sent directly to the Arduino.
-
-The parser can be tested independently:
-
-```bash
-python3 test_parser.py
-```
-
-This makes it possible to test the software logic before connecting the hardware.
-
----
-
-## 🔄 Serial Protocol
-
-The communication protocol is intentionally simple.
-
-### PC → Arduino
-
-```text
-LIGHT_ON
-LIGHT_OFF
-STATUS
-```
-
-### Arduino → PC
-
-```text
-READY
-LIGHT_STATE:ON
-LIGHT_STATE:OFF
-ERROR:UNKNOWN_COMMAND
-ERROR:LINE_TOO_LONG
-```
-
-Example:
-
-```text
-PC → Arduino
-LIGHT_ON
-
-Arduino → PC
-LIGHT_STATE:ON
-```
-
-The PC handles natural language.
-
-The Arduino handles deterministic commands.
-
----
-
-## 🎙️ Microphone Test
-
-The project can use `arecord` when PyAudio is not available.
-
-Check available recording devices:
-
-```bash
-arecord -l
-```
-
-Record a short sample:
-
-```bash
-arecord -d 3 -f S16_LE -r 16000 -c 1 /tmp/mic-test.wav
-```
-
-Play the recording:
-
-```bash
-aplay /tmp/mic-test.wav
-```
-
-If you can hear the recording, the microphone is working correctly at the system level.
-
----
-
-## ⚠️ Troubleshooting
-
-### `/dev/ttyUSB0 is already open`
-
-Close the Arduino IDE Serial Monitor.
-
-Only one application should use the serial port at a time.
-
-You can check which process is using the port:
-
-```bash
-fuser -v /dev/ttyUSB0
-```
-
----
-
-### 💡 LED does not turn on
-
-Check the wiring:
-
-```text
-D8
- ↓
-220 Ω
- ↓
-LED (+)
-LED (-)
- ↓
-GND
-```
-
-Also verify that the Arduino sketch contains:
-
-```cpp
-const int LED_PIN = 8;
-```
-
----
-
-### 🔌 Arduino is not detected
-
-Check available serial devices:
-
-```bash
-ls -l /dev/ttyUSB* /dev/ttyACM*
-```
-
-Depending on the USB-to-serial chip, the Arduino may appear as:
-
-```text
-/dev/ttyUSB0
-```
-
-or:
-
-```text
-/dev/ttyACM0
-```
-
----
-
-### 🎤 Microphone is not detected
-
-Run:
-
-```bash
-arecord -l
-```
-
-If `arecord` is not installed on Arch Linux:
-
-```bash
-sudo pacman -S alsa-utils
-```
-
----
-
-### 🌐 Speech recognition is not working
-
-The default Google Web Speech recognition requires an internet connection.
-
-First verify that:
-
-* Your microphone is detected.
-* The microphone can record audio.
-* Internet access is available.
-* The Arduino serial port is not being used by another application.
+## ⚠️ Limitations
+
+* **Two signs only.** No vocabulary, no grammar, no fingerspelling, no
+  facial expressions, no continuous signing. This is a command trigger, not
+  a translator.
+* **Static holds.** Signs distinguished mainly by movement are out of scope
+  for single-frame landmark classification.
+* **Personal model.** The classifier is trained on one person's hand,
+  camera and lighting. A different user should collect their own dataset.
+* **ASL only.** Nothing here generalizes to other sign languages.
+* **Single hand.** Two visible hands are treated as "no command".
+
+## 🚀 Future Improvements (not implemented)
+
+* More ASL command signs (e.g. UP/DOWN for dimming)
+* Continuous sign recognition with temporal models (movement-aware)
+* Text-display commands / multi-device control
+* MQTT broker instead of direct USB
+* Home Assistant integration
+* KNX / smart-building integration
 
 ---
 
 ## 📁 Project Structure
 
-The repository intentionally keeps Version 1 simple:
-
 ```text
-voice-controlled-arduino/
-│
-├── 📄 README.md
-│
-├── 🖼️ architecture.png
-├── 🖼️ flowchart.png
-├── 🖼️ wiring.png
-│
-├── 🐍 command_parser.py
-├── 🧪 test_parser.py
-├── 🎤 voice_controller.py
-│
-└── 🤖 voice_light_controller.ino
+├── main.py                     # real-time application (UI + wiring)
+├── config.py                   # all tunable settings in one place
+├── vision/
+│   ├── hand_detector.py        # MediaPipe Tasks wrapper
+│   ├── preprocessing.py        # THE shared landmark normalization
+│   ├── feature_extractor.py    # detection -> 63-dim feature vector
+│   └── draw.py                 # landmark skeleton drawing
+├── recognition/
+│   ├── collect_data.py         # webcam dataset collector
+│   ├── train_classifier.py     # train / evaluate / save
+│   ├── classifier.py           # model loading + prediction
+│   └── model/sign_classifier.pkl   (created by training)
+├── control/
+│   ├── command_parser.py       # ON->LIGHT_ON, OFF->LIGHT_OFF
+│   ├── serial_controller.py    # ArduinoLink + auto-detect + simulator
+│   └── debounce.py             # SignStabilizer state machine
+├── arduino/sign_controller/sign_controller.ino
+├── models/hand_landmarker.task # MediaPipe weights (fetch script)
+├── data/samples/               # your collected dataset (gitignored)
+├── scripts/fetch_hand_landmarker.py
+├── tests/                      # unit + integration tests
+├── legacy_voice/               # preserved Version 1 (voice project)
+├── requirements.txt
+└── README.md
 ```
-
-Everything required for this Version 1 implementation is contained in the repository root.
 
 ---
 
-## 🗺️ Roadmap
-
-This project is the first step in a larger progression.
-
-### V1 — Fundamentals
-
-```text
-🎤 Voice
- ↓
-💻 PC
- ↓
-🔌 USB Serial
- ↓
-🤖 Arduino
- ↓
-💡 LED
-```
-
-### V2 — Multiple Outputs
-
-```text
-🎤 Voice
- ↓
-🔌 Serial
- ↓
-🤖 Arduino
- ↓
-💡 💡 💡 Multiple Outputs
-```
-
-### V3 — Wi-Fi
-
-```text
-🎤 Voice
- ↓
-📡 Wi-Fi
- ↓
-ESP32
- ↓
-💡 Device
-```
-
-### V4 — MQTT
-
-```text
-🎤 Voice
- ↓
-📬 MQTT
- ↓
-ESP32
- ↓
-💡 Device
-```
-
-### V5 — Node-RED
-
-```text
-🎤 Voice
- ↓
-🔀 Node-RED
- ↓
-📬 MQTT
- ↓
-ESP32
- ↓
-💡 Device
-```
-
-### V6 — Building Automation
-
-```text
-🎤 Voice
- ↓
-🔀 Node-RED
- ↓
-⚡ KNX
- ↓
-🔌 Actuator
- ↓
-💡 Real Light
-```
-
-The objective is to introduce one new layer at a time while keeping the previous concepts understandable and reusable.
-
----
-
-## 🚀 Future Direction
-
-Future versions will progressively introduce:
-
-* 📡 Wi-Fi
-* 📬 MQTT
-* 🔀 Node-RED
-* 🏠 Home Automation
-* ⚡ KNX
-* 🔄 Device feedback
-* 🧠 Local AI
-* 🏢 Building Automation
-
-The long-term direction is to move from a simple Arduino experiment toward real **IoT and Building Automation architectures**.
-
----
-
-## 📺 Project Series
-
-This project is part of a practical progression:
-
-### **From Arduino to Building Automation**
-
-Starting from:
-
-```text
-Arduino → Serial → LED
-```
-
-and progressively moving toward:
-
-```text
-IoT → MQTT → Node-RED → KNX → Building Automation
-```
-
-Each version adds a new technical layer instead of replacing everything from the previous version.
-
----
-
-## 👤 Author
-
-**Abdelkhalek Mammeri**
-
-Electronics • IoT • Building Automation • IT/OT
-
-GitHub: **Ab40D**
-
+*This project recognizes two predefined ASL signs and maps them to device
+commands. It does not understand ASL grammar, sentences, facial expressions,
+or general sign language.*

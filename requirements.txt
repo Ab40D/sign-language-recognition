@@ -1,0 +1,13 @@
+# ASL device controller — Python dependencies (Python 3.10+)
+#
+# Versions verified together on Python 3.13.
+# NOTE: mediapipe >= 0.10.35 removed the legacy `mp.solutions` API; this
+# project uses the current MediaPipe Tasks API (HandLandmarker), which
+# needs the model file fetched by scripts/fetch_hand_landmarker.py.
+
+opencv-python>=4.8
+mediapipe>=0.10.35
+numpy>=1.24,<2
+scikit-learn>=1.3
+joblib>=1.3
+pyserial>=3.5
