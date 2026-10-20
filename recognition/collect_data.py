@@ -1,4 +1,7 @@
 """Collect training samples for one sign with your own webcam.
+import os
+os.environ["QT_QPA_PLATFORM"] = "xcb"
+
 
 Why self-collected data? Public ASL datasets exist, but none of the
 commonly licensed ones contain exactly the two lexicalized signs #ON and
@@ -25,7 +28,7 @@ import os
 import sys
 import time
 from datetime import datetime
-
+import os
 import cv2
 import numpy as np
 

@@ -72,7 +72,7 @@ class HandDetector:
         self,
         min_detection_confidence: float = 0.6,
         min_tracking_confidence: float = 0.5,
-        max_num_hands: int = 2,
+        max_num_hands: int = 1,
         model_path: str = DEFAULT_MODEL_PATH,
     ) -> None:
         if not os.path.exists(model_path):
