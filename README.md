@@ -338,6 +338,43 @@ Potential extensions include:
 
 These are future directions, not claims about features already implemented.
 
+
+## Dataset and Data Collection
+
+The project supports two approaches to collecting training data:
+
+- **Webcam collection:** Capture labeled hand-landmark samples directly from a webcam using `recognition/collect_data.py`.
+- **Video-based extraction:** Extract hand landmarks from labeled `ON` and `OFF` video recordings using `recognition/collect_from_video.py`.
+
+The resulting samples are normalized landmark feature vectors rather than raw images used directly by the classifier. This keeps the recognition pipeline focused on hand geometry.
+
+For reliable evaluation, training and test data should be separated carefully. When multiple recordings or participants are available, evaluate whether the model generalizes to recordings or people it has not seen during training.
+
+Before redistributing any recordings, verify that their use and publication are authorized.
+
+### Webcam collection
+
+```bash
+python recognition/collect_data.py --label ON
+python recognition/collect_data.py --label OFF
+```
+
+### Extract samples from the bundled video directory
+
+```bash
+python recognition/collect_from_video.py
+```
+
+The video extraction script reads recordings from `data/videos/` by default and writes extracted samples to `data/samples/`. Review the script's options before changing the input or output directories.
+
+### Train the classifier
+
+```bash
+python recognition/train_classifier.py
+```
+
+The training script reports held-out test metrics. These results describe the selected dataset and split; they should not be interpreted as proof of generalization to unseen users unless the evaluation explicitly tests that scenario.
+
 ## Project Background
 
 This project evolves from an earlier voice-controlled Arduino LED prototype. The previous implementation is preserved in [`legacy_voice/`](legacy_voice/README.md), where applicable.
